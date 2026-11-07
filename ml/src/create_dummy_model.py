@@ -1,39 +1,28 @@
 """Script de generation du Dummy Model (Tache T1.1 - Priorite J+1)
 
-Ce script cree un premier artefact composite serialise (model.joblib) conforme
-aux specifications du Cahier des Charges (sections 3.3 et 5) et au format
-attendu par l'API FastAPI et le job Spark Structured Streaming.
+Ce script cree le premier artefact model.joblib conforme aux specifications
+du Cahier des Charges.
+
+L'objet serialise est directement un Pipeline scikit-learn standard,
+sans dependance a des classes custom hors-sklearn, garantissant que
+l'API FastAPI et le job Spark peuvent charger le fichier avec un simple :
+    model = joblib.load("model.joblib")
+    model.predict_proba(df)
 """
 
 from pathlib import Path
 import time
 import joblib
-import numpy as np
 import pandas as pd
-from sklearn.base import BaseEstimator, TransformerMixin
 from sklearn.compose import ColumnTransformer
 from sklearn.linear_model import LogisticRegression
 from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import OneHotEncoder, StandardScaler
 
 
-class FeatureEngineeringTransformer(BaseEstimator, TransformerMixin):
-    """Calcule les ecarts de solde conformement a la specification SF1."""
-
-    def fit(self, X, y=None):
-        return self
-
-    def transform(self, X):
-        df = X.copy()
-        # Calcul des deltas de soldes
-        df["balance_diff_orig"] = df["newbalanceOrig"] + df["amount"] - df["oldbalanceOrg"]
-        df["balance_diff_dest"] = df["oldbalanceDest"] + df["amount"] - df["newbalanceDest"]
-        return df
-
-
 def build_and_save_dummy_model(output_path: Path):
-    """Construit et exporte l'artefact composite model.joblib."""
-    # 1. Donnees synthetiques representatives pour ajuster le pipeline
+    """Construit et exporte l'artefact model.joblib."""
+    # 1. Donnees synthetiques representatives PaySim pour ajuster le pipeline
     sample_data = pd.DataFrame(
         [
             # Transactions normales
@@ -64,15 +53,13 @@ def build_and_save_dummy_model(output_path: Path):
         "newbalanceOrig",
         "oldbalanceDest",
         "newbalanceDest",
-        "balance_diff_orig",
-        "balance_diff_dest",
     ]
     categorical_cols = ["type"]
 
     X_train = sample_data[feature_cols]
     y_train = sample_data["is_fraud"]
 
-    # 2. Pipeline de pretraitement
+    # 2. Pipeline de pretraitement standard scikit-learn
     preprocessor = ColumnTransformer(
         transformers=[
             ("num", StandardScaler(), numeric_cols),
@@ -87,43 +74,36 @@ def build_and_save_dummy_model(output_path: Path):
         ]
     )
 
-    # 3. Assemblage du Pipeline complet
-    full_pipeline = Pipeline(
+    # 3. Pipeline complet standard
+    pipeline = Pipeline(
         steps=[
-            ("fe", FeatureEngineeringTransformer()),
             ("preprocessor", preprocessor),
             ("classifier", LogisticRegression(class_weight="balanced", random_state=42)),
         ]
     )
 
-    # Entrainement sur l'echantillon
-    full_pipeline.fit(X_train, y_train)
+    # Entrainement
+    pipeline.fit(X_train, y_train)
 
-    # 4. Construction de l'artefact composite
+    # 4. Attributs de metadonnees et de seuil integres au pipeline
     optimal_threshold = 0.50
     model_version = "v0.1.0-dummy"
 
-    artifact = {
-        "pipeline": full_pipeline,
-        "threshold": optimal_threshold,
-        "model_version": model_version,
-        "features": feature_cols,
-        "created_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
-        "metrics": {
-            "status": "dummy_baseline",
-            "target_recall": ">= 0.85",
-            "target_f1": ">= 0.80",
-            "target_auc_pr": ">= 0.85",
-        },
-    }
+    pipeline.threshold = optimal_threshold
+    pipeline.model_version = model_version
+    pipeline.features = feature_cols
+    pipeline.created_at = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
 
-    # Sauvegarde
+    # 5. Sauvegarde
     output_path.parent.mkdir(parents=True, exist_ok=True)
-    joblib.dump(artifact, output_path)
-    print(f"[OK] Artefact composite dummy model sauvegarde avec succes : {output_path}")
+    joblib.dump(pipeline, output_path)
+
+    print(f"[OK] Modele joblib sauvegarde avec succes : {output_path}")
+    print(f"     Type de l'objet : {type(pipeline)}")
     print(f"     Version du modele : {model_version}")
     print(f"     Seuil de decision : {optimal_threshold}")
-    return artifact
+    print(f"     Colonnes attendues : {feature_cols}")
+    return pipeline
 
 
 def test_inference(model_path: Path):
@@ -131,13 +111,12 @@ def test_inference(model_path: Path):
     print("\n--- Test d'Inference Unitaire (Simulation Scenario 2) ---")
     start_time = time.perf_counter()
 
-    # Chargement
-    loaded = joblib.load(model_path)
-    pipeline = loaded["pipeline"]
-    threshold = loaded["threshold"]
-    version = loaded["model_version"]
+    # Chargement direct du modele
+    model = joblib.load(model_path)
+    threshold = getattr(model, "threshold", 0.5)
+    version = getattr(model, "model_version", "unknown")
 
-    # Transaction de test frauduleuse (du Cahier des Charges)
+    # Transaction de test (du Cahier des Charges)
     test_tx = pd.DataFrame(
         [
             {
@@ -152,8 +131,8 @@ def test_inference(model_path: Path):
         ]
     )
 
-    # Prediction de probabilite (classe 1 = fraude)
-    prob = float(pipeline.predict_proba(test_tx)[0, 1])
+    # Prediction
+    prob = float(model.predict_proba(test_tx)[0, 1])
     is_fraud = bool(prob >= threshold)
     decision = "BLOCKED" if is_fraud else "ALLOWED"
     latency_ms = (time.perf_counter() - start_time) * 1000
