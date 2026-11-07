@@ -1,0 +1,42 @@
+# Documentation locale (exclue du dépôt GitHub)
+docs/
+*.pdf
+
+# Données volumineuses (PaySim ~470 Mo)
+*.csv
+*.parquet
+*.zip
+*.tar.gz
+data/
+data_sample/*.csv
+!data_sample/test_stream_head.csv
+
+# Environnements Python et caches
+__pycache__/
+*.py[cod]
+*$py.class
+.venv/
+env/
+venv/
+.ipynb_checkpoints/
+
+# Spark & Checkpoints
+checkpoint/
+spark-warehouse/
+derby.log
+metastore_db/
+
+# Fichiers de compilation LaTeX
+*.aux
+*.log
+*.out
+*.toc
+*.fls
+*.fdb_latexmk
+*.synctex.gz
+
+# Système et IDE
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/

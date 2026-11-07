@@ -1,0 +1,396 @@
+openapi: 3.0.3
+info:
+  title: Fraud Detection Streaming Platform API
+  version: 1.0.0
+  description: API REST de supervision, prédiction unitaire et contrôle de la plateforme de détection de fraude.
+paths:
+  /api/v1/health:
+    get:
+      summary: État de santé des services
+      operationId: getHealth
+      responses:
+        '200':
+          description: Système opérationnel
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HealthResponse'
+  /api/v1/predict:
+    post:
+      summary: Prédiction synchrone en mémoire
+      description: Évalue immédiatement une transaction en mémoire (défaut sans écriture DB pour préserver le P95 < 200 ms). Si persist=true, stocke le résultat dans MongoDB (source: "api").
+      operationId: predictTransaction
+      parameters:
+        - name: persist
+          in: query
+          required: false
+          description: Si true, enregistre la transaction évaluée dans MongoDB avec source="api". Défaut false.
+          schema:
+            type: boolean
+            default: false
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TransactionInput'
+      responses:
+        '200':
+          description: Décision de scoring
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PredictResponse'
+        '422':
+          description: Erreur de validation
+  /api/v1/transactions:
+    post:
+      summary: Injection asynchrone dans Kafka
+      description: Publie la transaction dans le topic transactions_stream pour traitement Spark.
+      operationId: injectTransaction
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TransactionInput'
+      responses:
+        '200':
+          description: Transaction mise en file d'attente
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/QueueResponse'
+  /api/v1/stats:
+    get:
+      summary: Compteurs globaux
+      operationId: getGlobalStats
+      responses:
+        '200':
+          description: Métriques consolidées
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GlobalStatsResponse'
+  /api/v1/stats/timeseries:
+    get:
+      summary: Série temporelle des transactions et fraudes
+      operationId: getTimeseries
+      parameters:
+        - name: window
+          in: query
+          schema:
+            type: string
+            default: "15m"
+        - name: bucket
+          in: query
+          schema:
+            type: string
+            default: "10s"
+      responses:
+        '200':
+          description: Points de série temporelle
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TimeseriesResponse'
+  /api/v1/alerts/latest:
+    get:
+      summary: Dernières alertes de fraude
+      operationId: getLatestAlerts
+      parameters:
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 20
+            maximum: 100
+      responses:
+        '200':
+          description: Liste des alertes
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/AlertItem'
+  /api/v1/stream/control:
+    post:
+      summary: Contrôle du simulateur de trafic
+      operationId: controlStream
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/StreamControlRequest'
+      responses:
+        '200':
+          description: Commande exécutée
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StreamStatusResponse'
+  /api/v1/stream/status:
+    get:
+      summary: État actuel du simulateur
+      operationId: getStreamStatus
+      responses:
+        '200':
+          description: État du simulateur
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StreamStatusResponse'
+
+components:
+  schemas:
+    TransactionInput:
+      type: object
+      required:
+        - step
+        - type
+        - amount
+        - oldbalanceOrg
+        - newbalanceOrig
+        - oldbalanceDest
+        - newbalanceDest
+      properties:
+        transaction_id:
+          type: string
+          description: Identifiant optionnel. Si omis, généré automatiquement par l'API (UUIDv4).
+          example: "tx_custom_102"
+        step:
+          type: integer
+          minimum: 1
+          example: 650
+        type:
+          type: string
+          enum: [PAYMENT, TRANSFER, CASH_OUT, DEBIT, CASH_IN]
+          example: "TRANSFER"
+        amount:
+          type: number
+          minimum: 0
+          example: 250000.0
+        oldbalanceOrg:
+          type: number
+          minimum: 0
+          example: 250000.0
+        newbalanceOrig:
+          type: number
+          minimum: 0
+          example: 0.0
+        oldbalanceDest:
+          type: number
+          minimum: 0
+          example: 0.0
+        newbalanceDest:
+          type: number
+          minimum: 0
+          example: 250000.0
+        nameOrig:
+          type: string
+          example: "C12345678"
+        nameDest:
+          type: string
+          example: "C98765432"
+
+    PredictResponse:
+      type: object
+      required:
+        - transaction_id
+        - is_fraud
+        - probability
+        - decision
+        - threshold
+        - model_version
+        - latency_ms
+      properties:
+        transaction_id:
+          type: string
+          example: "tx_8f3a9b1c"
+        is_fraud:
+          type: boolean
+          example: true
+        probability:
+          type: number
+          example: 0.94
+        decision:
+          type: string
+          enum: [BLOCKED, ALLOWED]
+          example: "BLOCKED"
+        threshold:
+          type: number
+          example: 0.35
+        model_version:
+          type: string
+          example: "v1.0.0"
+        latency_ms:
+          type: number
+          example: 14.2
+
+    QueueResponse:
+      type: object
+      required:
+        - status
+        - transaction_id
+      properties:
+        status:
+          type: string
+          example: "queued"
+        transaction_id:
+          type: string
+          example: "tx_12345"
+
+    HealthResponse:
+      type: object
+      required:
+        - status
+        - mode
+        - model_loaded
+        - model_version
+        - mongodb_connected
+        - kafka_connected
+      properties:
+        status:
+          type: string
+          example: "healthy"
+        mode:
+          type: string
+          enum: [real, mock]
+          description: "Indique si l'API fonctionne avec les vrais services distribués ('real') ou en mode découplé ('mock'). Le scénario 1 exige 'real'."
+          example: "real"
+        model_loaded:
+          type: boolean
+          example: true
+        model_version:
+          type: string
+          example: "v1.0.0"
+        mongodb_connected:
+          type: boolean
+          example: true
+        kafka_connected:
+          type: boolean
+          example: true
+
+    GlobalStatsResponse:
+      type: object
+      required:
+        - total_tx
+        - total_frauds
+        - fraud_rate
+        - fraud_amount
+        - last_update
+      properties:
+        total_tx:
+          type: integer
+          example: 125400
+        total_frauds:
+          type: integer
+          example: 164
+        fraud_rate:
+          type: number
+          example: 0.0013
+        fraud_amount:
+          type: number
+          example: 450200.5
+        last_update:
+          type: string
+          format: date-time
+          example: "2026-11-07T10:00:00Z"
+
+    TimeseriesPoint:
+      type: object
+      required:
+        - t
+        - tx
+        - frauds
+      properties:
+        t:
+          type: string
+          format: date-time
+        tx:
+          type: integer
+        frauds:
+          type: integer
+
+    TimeseriesResponse:
+      type: object
+      required:
+        - bucket
+        - points
+      properties:
+        bucket:
+          type: string
+          example: "10s"
+        points:
+          type: array
+          items:
+            $ref: '#/components/schemas/TimeseriesPoint'
+
+    AlertItem:
+      type: object
+      required:
+        - transaction_id
+        - timestamp
+        - type
+        - amount
+        - probability
+        - model_version
+      properties:
+        transaction_id:
+          type: string
+        timestamp:
+          type: string
+          format: date-time
+        type:
+          type: string
+        amount:
+          type: number
+        probability:
+          type: number
+        model_version:
+          type: string
+
+    StreamControlRequest:
+      type: object
+      required:
+        - action
+      properties:
+        action:
+          type: string
+          enum: [start, stop]
+          example: "start"
+        rate_tx_per_sec:
+          type: integer
+          minimum: 10
+          maximum: 2000
+          default: 500
+          example: 500
+        fraud_ratio:
+          type: number
+          minimum: 0.0001
+          maximum: 0.5
+          default: 0.0013
+          example: 0.02
+
+    StreamStatusResponse:
+      type: object
+      required:
+        - is_running
+        - rate_tx_per_sec
+        - fraud_ratio
+        - total_sent
+      properties:
+        is_running:
+          type: boolean
+          example: true
+        rate_tx_per_sec:
+          type: integer
+          example: 500
+        fraud_ratio:
+          type: number
+          example: 0.02
+        total_sent:
+          type: integer
+          example: 45200
