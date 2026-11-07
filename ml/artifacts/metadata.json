@@ -1,0 +1,81 @@
+{
+  "model_version": "v1.0.0-xgb",
+  "model_type": "XGBClassifier",
+  "created_at": "2026-11-07T13:25:03.376758+00:00",
+  "train_samples": 506613,
+  "train_fit_time_seconds": 4.49,
+  "optimal_threshold": 0.9447213411331177,
+  "features": {
+    "categorical": [
+      "type"
+    ],
+    "numeric": [
+      "amount",
+      "oldbalanceOrg",
+      "newbalanceOrig",
+      "oldbalanceDest",
+      "newbalanceDest"
+    ],
+    "engineered": [
+      "balance_diff_orig",
+      "balance_diff_dest"
+    ]
+  },
+  "hyperparameters": {
+    "n_estimators": 150,
+    "max_depth": 6,
+    "learning_rate": 0.08,
+    "scale_pos_weight": 75.61,
+    "tree_method": "hist"
+  },
+  "snf1_compliance": {
+    "recall_ge_85": true,
+    "f1_ge_80": true,
+    "auc_pr_ge_85": true,
+    "all_criteria_met": true
+  },
+  "validation_metrics": {
+    "threshold": 0.9447,
+    "recall": 0.9874,
+    "precision": 0.9149,
+    "f1_score": 0.9497,
+    "auc_pr": 0.99,
+    "roc_auc": 0.9999
+  },
+  "test_metrics": {
+    "recall": 0.9776,
+    "precision": 0.9657,
+    "f1_score": 0.9716,
+    "auc_pr": 0.9953,
+    "roc_auc": 0.9998,
+    "confusion_matrix": {
+      "true_negatives": 10914,
+      "false_positives": 17,
+      "false_negatives": 11,
+      "true_positives": 479
+    }
+  },
+  "benchmark_summary": {
+    "LogisticRegression (Baseline)": {
+      "fit_time_s": 4.74,
+      "val_auc_pr": 0.3336,
+      "val_roc_auc": 0.9259,
+      "val_recall_0.5": 0.8514,
+      "val_f1_0.5": 0.1073
+    },
+    "RandomForest (Balanced)": {
+      "fit_time_s": 13.56,
+      "val_auc_pr": 0.9703,
+      "val_roc_auc": 0.9995,
+      "val_recall_0.5": 0.9982,
+      "val_f1_0.5": 0.6388
+    },
+    "XGBoost (Optimise)": {
+      "fit_time_s": 2.91,
+      "val_auc_pr": 0.9879,
+      "val_roc_auc": 0.9999,
+      "val_recall_0.5": 1.0,
+      "val_f1_0.5": 0.7861
+    }
+  }
+}
