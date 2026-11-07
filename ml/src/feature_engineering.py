@@ -68,7 +68,9 @@ def compute_balance_features(df: pd.DataFrame) -> pd.DataFrame:
 
 def add_engineered_features(df: pd.DataFrame) -> pd.DataFrame:
     """
-    Enrichit un DataFrame PaySim avec toutes les features metier deduites.
+    Fonction exploratoire (EDA) : enrichit un DataFrame PaySim avec des indicateurs de recherche.
+    Note : Le pipeline scikit-learn de production (build_preprocessor) n'utilise que les variables
+    les plus discriminantes (ecarts de solde, type, soldes bruts) pour garantir une latence conforme a SNF2 (< 200 ms).
     """
     df_feat = compute_balance_features(df)
     

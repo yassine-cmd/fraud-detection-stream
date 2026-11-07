@@ -9,7 +9,9 @@ ml/documentation.md
 *.parquet
 *.zip
 *.tar.gz
-data/
+data/*
+!data/download_paysim.py
+!data/.gitkeep
 data_sample/*.csv
 !data_sample/test_stream_head.csv
 !streaming/data_sample/test_stream.csv

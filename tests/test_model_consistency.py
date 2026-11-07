@@ -1,6 +1,6 @@
 """
 Test de consistance numerique, reproductibilite et validation en conditions reelles.
-Tache T1.6 : Equivalence d'inference entre API FastAPI (unitaire) et Spark (batch).
+Tache T1.6 : Parite d'inference unitaire (simulation API) vs vectorisee batch (simulation Spark).
 
 Criteres du Cahier des Charges (Section 7.3 & T1.6) :
   1. Comparaison des probabilites sur un echantillon de 1 000 transactions en float64.
@@ -8,6 +8,8 @@ Criteres du Cahier des Charges (Section 7.3 & T1.6) :
   3. Zero divergence sur la decision binaire (BLOCKED vs ALLOWED).
   4. Mesure de la latence unitaire P95 (< 200 ms, exigence SNF2).
   5. Robustesse face aux cas limites de production (montants nuls, vidage de compte, types inconnus).
+  Note : Ce banc d'essai valide la stricte parite unitaire vs batch du pipeline en environnement Python.
+         Le test de parite cross-engine de bout en bout sera execute dans le cluster Spark de Personne 2.
 """
 
 import logging
@@ -46,7 +48,8 @@ class TestModelConsistency(unittest.TestCase):
     def setUpClass(cls):
         """Chargement du modele et des donnees d'echantillon."""
         logger.info(f"Chargement de l'artefact modele depuis {MODEL_PATH}...")
-        cls.assertTrue(MODEL_PATH.exists(), f"Artefact introuvable : {MODEL_PATH}")
+        if not MODEL_PATH.exists():
+            raise FileNotFoundError(f"Artefact introuvable : {MODEL_PATH}")
         cls.pipeline = joblib.load(MODEL_PATH)
 
         # Verification des attributs de metadonnees
@@ -64,6 +67,9 @@ class TestModelConsistency(unittest.TestCase):
             df_full = df_full[df_full["step"] > 700]
         else:
             raise FileNotFoundError("Aucun fichier de donnees PaySim trouve pour le test.")
+
+        # Rejeu cyclique T1.3 : dedupliquer pour mesurer la parite sur des transactions uniques.
+        df_full = df_full.drop_duplicates()
 
         # Echantillon de 1 000 transactions
         cls.n_sample = 1000

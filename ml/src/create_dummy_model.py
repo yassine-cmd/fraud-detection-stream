@@ -91,6 +91,7 @@ def build_and_save_dummy_model(output_path: Path):
 
     pipeline.threshold = optimal_threshold
     pipeline.model_version = model_version
+    pipeline.input_features = feature_cols
     pipeline.features = feature_cols
     pipeline.created_at = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
 

@@ -18,12 +18,17 @@ import json
 import logging
 import time
 from datetime import datetime, timezone
+import hashlib
 from pathlib import Path
+import platform
+import subprocess
 from typing import Dict, Any, Tuple
 
 import joblib
 import numpy as np
 import pandas as pd
+import pyarrow
+import sklearn
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.linear_model import LogisticRegression
 from sklearn.metrics import (
@@ -70,14 +75,20 @@ def parse_args():
     parser.add_argument(
         "--train-neg-samples",
         type=int,
-        default=0,
-        help="Nombre de transactions negatives a echantillonner dans Train (0 pour 100% des donnees)"
+        default=500000,
+        help="Nombre de transactions negatives a echantillonner dans Train (500000 par defaut, 0 pour 100%% des donnees)"
     )
     parser.add_argument(
         "--run-benchmark",
         action="store_true",
-        default=False,
+        default=True,
         help="Executer le benchmark comparatif (LogReg vs RandomForest vs XGBoost) sur un sous-ensemble"
+    )
+    parser.add_argument(
+        "--skip-benchmark",
+        dest="run_benchmark",
+        action="store_false",
+        help="Sauter l'etape de benchmark pour un entrainement direct"
     )
     return parser.parse_args()
 
@@ -144,9 +155,14 @@ def run_benchmark_models(
     logger.info("=== Lancement du Benchmark Comparatif ===")
 
     models = {
+        # Solveur et tolerance figes pour un benchmark reproductible :
+        # lbfgs avec tol=1e-4 peut s'arreter sur des solutions differentes
+        # selon l'ordonnancement BLAS (AUC-PR observee entre 0.33 et 0.66).
         "LogisticRegression (Baseline)": LogisticRegression(
             class_weight="balanced",
-            max_iter=300,
+            solver="lbfgs",
+            max_iter=1000,
+            tol=1e-8,
             random_state=42
         ),
         "RandomForest (Balanced)": RandomForestClassifier(
@@ -356,9 +372,14 @@ def main():
     }
 
     # 7. Attributs integres a la pipeline pour portabilite Spark/FastAPI
+    raw_input_cols = ["step", "type", "amount", "oldbalanceOrg", "newbalanceOrig", "oldbalanceDest", "newbalanceDest"]
+    transformed_cols = PAYMENT_TYPES + RAW_NUMERIC_FEATURES + ["balance_diff_orig", "balance_diff_dest"]
+
     production_pipeline.threshold = optimal_thresh
     production_pipeline.model_version = "v1.0.0-xgb"
-    production_pipeline.features = PAYMENT_TYPES + RAW_NUMERIC_FEATURES + ["balance_diff_orig", "balance_diff_dest"]
+    production_pipeline.input_features = raw_input_cols
+    production_pipeline.features = raw_input_cols  # Contrat d'entree explicite pour P2 et P3
+    production_pipeline.transformed_features = transformed_cols
 
     # 8. Exportation de model.joblib et metadata.json
     model_export_path = artifacts_dir / "model.joblib"
@@ -367,13 +388,59 @@ def main():
     logger.info(f"Sauvegarde du pipeline composite dans {model_export_path}...")
     joblib.dump(production_pipeline, model_export_path)
 
+    # Provenance et tracabilite MLOps
+    def get_git_commit_sha() -> str:
+        try:
+            return subprocess.check_output(
+                ["git", "describe", "--always", "--dirty", "--tags"],
+                stderr=subprocess.DEVNULL
+            ).decode().strip()
+        except Exception:
+            try:
+                return subprocess.check_output(
+                    ["git", "rev-parse", "HEAD"],
+                    stderr=subprocess.DEVNULL
+                ).decode().strip()
+            except Exception:
+                return "unknown"
+
+    def compute_file_sha256(file_path: Path) -> str:
+        if not file_path.exists():
+            return "not_found"
+        hasher = hashlib.sha256()
+        with open(file_path, "rb") as f:
+            for chunk in iter(lambda: f.read(1024 * 1024), b""):
+                hasher.update(chunk)
+        return hasher.hexdigest()
+
+    git_sha = get_git_commit_sha()
+    data_sha256 = compute_file_sha256(data_path)
+
     metadata_payload = {
         "model_version": "v1.0.0-xgb",
         "model_type": "XGBClassifier",
         "created_at": datetime.now(timezone.utc).isoformat(),
+        "provenance": {
+            "git_commit": git_sha,
+            "environment_versions": {
+                "python": platform.python_version(),
+                "scikit_learn": sklearn.__version__,
+                "xgboost": xgb.__version__,
+                "pandas": pd.__version__,
+                "numpy": np.__version__,
+                "pyarrow": pyarrow.__version__,
+                "joblib": joblib.__version__
+            },
+            "dataset": {
+                "path": str(data_path),
+                "size_bytes": data_path.stat().st_size if data_path.exists() else 0,
+                "sha256": data_sha256
+            }
+        },
         "train_samples": len(X_train),
         "train_fit_time_seconds": fit_duration,
         "optimal_threshold": optimal_thresh,
+        "input_features": raw_input_cols,
         "features": {
             "categorical": ["type"],
             "numeric": RAW_NUMERIC_FEATURES,
@@ -400,7 +467,10 @@ def main():
     logger.info(f"Rappel Test >= 85%  : {'VALIDE' if snf1_check['recall_ge_85'] else 'ECHEC'} ({test_metrics['recall']:.2%})")
     logger.info(f"F1-Score Test >= 0.80: {'VALIDE' if snf1_check['f1_ge_80'] else 'ECHEC'} ({test_metrics['f1_score']:.4f})")
     logger.info(f"AUC-PR Test >= 0.85 : {'VALIDE' if snf1_check['auc_pr_ge_85'] else 'ECHEC'} ({test_metrics['auc_pr']:.4f})")
-    logger.info("[SUCCES TOTAL] Taches T1.4 et T1.5 terminees et conformes au Cahier des Charges !")
+    if snf1_check["all_criteria_met"]:
+        logger.info("[SUCCES TOTAL] Taches T1.4 et T1.5 terminees et conformes au Cahier des Charges !")
+    else:
+        logger.warning("[ECHEC] Un ou plusieurs criteres SNF1 ne sont pas satisfaits.")
 
 
 if __name__ == "__main__":

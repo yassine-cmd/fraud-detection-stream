@@ -7,15 +7,25 @@ Découpage temporel défini dans le Cahier des Charges :
   - Validation : 601 <= step <= 700
   - Test       : step > 700
 
-Ce script extrait l'intégralité du split de test (step > 700), préservant 100%
-des fraudes (490 fraudes sur 11 421 transactions, soit 4.29% de fraudes),
-et l'enregistre dans streaming/data_sample/test_stream.csv pour alimenter
-le producteur Kafka (producer.py) de Personne 2.
+Volume et représentativité du split de test PaySim :
+  - Dans le dataset complet PaySim (6 362 620 lignes), le segment step > 700
+    compte exactement 11 421 transactions, dont 490 fraudes (ratio: 4.29%).
+  - L'intégralité de ce split est extraite sans fuite temporelle dans test_stream.csv.
+  - Conformément à la tâche T2.2 (Cahier des charges & Répartition des tâches),
+    le simulateur Kafka (producer.py) rejoue ce fichier en boucle avec régénération
+    d'identifiants UUIDv4 uniques (tx_...) et horodatage UTC courant (produced_at)
+    pour atteindre les 300 000 messages requis sur 10 minutes.
+
+Contrat Kafka et colonnes :
+  - test_stream.csv conserve volontairement isFraud afin de permettre au simulateur
+    d'ajuster le ratio de fraudes en mode démo (ex: fraud_ratio = 2% vs 4.29% naturel).
+  - IMPORTANT pour Personne 2 : Lors de l'envoi vers le topic Kafka transactions_stream,
+    le producteur DOIT filtrer isFraud et isFlaggedFraud pour respecter la règle
+    additionalProperties: false du schéma JSON contracts/kafka_message.schema.json.
 """
 
 import argparse
 import logging
-import os
 from pathlib import Path
 import pandas as pd
 
@@ -53,6 +63,12 @@ def parse_args():
         type=int,
         default=700,
         help="Borne superieure du split de validation (inclus)"
+    )
+    parser.add_argument(
+        "--target-rows",
+        type=int,
+        default=0,
+        help="Nombre cible de lignes pour le simulateur (0 pour conserver exactement les 11 421 lignes du split test pur)"
     )
     return parser.parse_args()
 
@@ -114,6 +130,14 @@ def main():
     # 2. Tri chronologique sur le split de test pour respecter l'ordre temporel du stream
     test_df = test_df.sort_values(by=["step"]).reset_index(drop=True)
 
+    # Replay / expansion optionnelle si demandee
+    if args.target_rows > len(test_df):
+        logger.info(f"Expansion du flux vers {args.target_rows:,} lignes par replay cyclique temporel...")
+        repeats = (args.target_rows // len(test_df)) + 1
+        expanded_df = pd.concat([test_df] * repeats, ignore_index=True).iloc[:args.target_rows].copy()
+        test_df = expanded_df
+        logger.info(f"Flux etendu a {len(test_df):,} lignes (fraudes: {int(test_df['isFraud'].sum()):,})")
+
     # 3. Export du fichier test_stream.csv pour Personne 2
     output_path.parent.mkdir(parents=True, exist_ok=True)
     logger.info(f"Exportation de {len(test_df):,} transactions vers {output_path}...")
@@ -125,6 +149,7 @@ def main():
         f"Contenu : {len(test_df):,} transactions dont {int(test_df['isFraud'].sum()):,} fraudes "
         f"(100% des fraudes de test conservees, ratio: {test_df['isFraud'].mean() * 100:.2f}%)"
     )
+    logger.info("NOTE IMPORTANTE P2 : Le simulateur (producer.py) doit exclure isFraud/isFlaggedFraud avant publication Kafka.")
 
 
 if __name__ == "__main__":
