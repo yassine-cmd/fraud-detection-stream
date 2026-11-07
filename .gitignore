@@ -1,6 +1,8 @@
 # Documentation locale (exclue du dépôt GitHub)
 docs/
 *.pdf
+ml/DOCUMENTATION.md
+ml/documentation.md
 
 # Données volumineuses (PaySim ~470 Mo)
 *.csv
