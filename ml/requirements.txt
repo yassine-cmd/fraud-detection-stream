@@ -7,6 +7,9 @@ pandas==2.2.2
 numpy==1.26.4
 joblib==1.4.2
 
+# Format Parquet
+pyarrow==17.0.0
+
 # Visualisation & Analyse
 matplotlib==3.8.4
 seaborn==0.13.2

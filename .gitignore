@@ -10,6 +10,7 @@ docs/
 data/
 data_sample/*.csv
 !data_sample/test_stream_head.csv
+!streaming/data_sample/test_stream.csv
 
 # Environnements Python et caches
 __pycache__/
