@@ -1,15 +1,20 @@
 # Documentation locale (exclue du dépôt GitHub)
 docs/
 *.pdf
+ml/DOCUMENTATION.md
+ml/documentation.md
 
 # Données volumineuses (PaySim ~470 Mo)
 *.csv
 *.parquet
 *.zip
 *.tar.gz
-data/
+data/*
+!data/download_paysim.py
+!data/.gitkeep
 data_sample/*.csv
 !data_sample/test_stream_head.csv
+!streaming/data_sample/test_stream.csv
 
 # Environnements Python et caches
 __pycache__/

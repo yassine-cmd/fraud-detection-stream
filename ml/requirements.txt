@@ -1,0 +1,18 @@
+# Dépendances Personne 1 (Machine Learning)
+# Versions alignées sur contracts/common_versions.env pour compatibilité de sérialisation
+
+scikit-learn==1.4.2
+xgboost==2.0.3
+pandas==2.2.2
+numpy==1.26.4
+joblib==1.4.2
+
+# Format Parquet
+pyarrow==17.0.0
+
+# Visualisation & Analyse
+matplotlib==3.8.4
+seaborn==0.13.2
+
+# Environnement de travail
+jupyterlab>=4.0.0
