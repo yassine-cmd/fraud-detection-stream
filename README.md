@@ -16,7 +16,7 @@ Le dossier [`contracts/`](./contracts/) contient les spécifications formelles c
 * [`openapi.yaml`](./contracts/openapi.yaml) : Spécification OpenAPI 3.0 des endpoints de l'API FastAPI.
 * [`common_versions.env`](./contracts/common_versions.env) : Versions figées de Python, scikit-learn, XGBoost et pandas pour éviter tout décalage de sérialisation `joblib`.
 
-## Démarrage Docker (stack complète)
+## Démarrage Docker (stack P2)
 
 ```bash
 docker compose up -d --build
@@ -24,10 +24,10 @@ docker compose up -d --build
 
 | Service | URL |
 | :--- | :--- |
-| Dashboard Streamlit | http://localhost:8501 |
-| API FastAPI / Swagger | http://localhost:8000/docs |
 | Spark Master UI | http://localhost:8080 |
 | Simulateur Kafka (contrôle) | http://localhost:8001/status |
+
+Les services API et dashboard (P3) sont hors périmètre de cette branche P2.
 
 Le simulateur lit `streaming/data_sample/test_stream.csv`, publie dans Kafka
 (`transactions_stream`) et Spark applique `ml/artifacts/model.joblib` via une

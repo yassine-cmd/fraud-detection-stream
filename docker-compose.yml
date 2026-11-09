@@ -204,48 +204,6 @@ services:
       start_period: 10s
     restart: unless-stopped
 
-  # ---------- API REST FastAPI ----------
-  api:
-    build: ./api
-    container_name: fraud-api
-    depends_on:
-      kafka-init:
-        condition: service_completed_successfully
-      mongo:
-        condition: service_healthy
-      mongo-config:
-        condition: service_completed_successfully
-      producer:
-        condition: service_healthy
-    mem_limit: 384m
-    environment:
-      MOCK_KAFKA: "false"
-      KAFKA_BOOTSTRAP: kafka:9092
-      KAFKA_TOPIC: transactions_stream
-      MONGO_URI: mongodb://mongo:27017
-      MONGO_DB: fraud
-      MODEL_PATH: /models/model.joblib
-      SIMULATOR_URL: http://producer:8001
-    volumes:
-      - ./ml/artifacts:/models:ro
-    ports:
-      - "8000:8000"
-    restart: unless-stopped
-
-  # ---------- Dashboard Streamlit ----------
-  frontend:
-    build: ./frontend
-    container_name: fraud-dashboard
-    depends_on:
-      - api
-    mem_limit: 384m
-    environment:
-      API_URL: http://localhost:8000
-      INTERNAL_API_URL: http://api:8000
-    ports:
-      - "8501:8501"
-    restart: unless-stopped
-
 volumes:
   kafka_data:
   mongo_data:
