@@ -25,6 +25,9 @@ env/
 venv/
 .ipynb_checkpoints/
 
+# Variables d'environnement locales
+.env
+
 # Spark & Checkpoints
 checkpoint/
 spark-warehouse/
