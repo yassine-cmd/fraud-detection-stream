@@ -24,7 +24,8 @@ Ce document définit formellement les collections, index, correspondances de cha
 | `model_version` | String | Version du modèle (ex: `"v1.0.0"`) | - | `model_version` | `model_version` |
 | `produced_at` | Date | Horodatage de publication Kafka | - | Non | Non |
 | `scored_at` | Date | Horodatage d'inférence (Spark ou API) | - | Exposé en `timestamp` | Exposé en `timestamp` |
-| `pipeline_latency_ms`| Double | `scored_at - produced_at` en ms | - | Non | Exposé en `latency_ms` |
+| `written_at` | Date | Horodatage d'écriture effective dans MongoDB (`$$NOW`, flux Spark uniquement) | - | Non | Non |
+| `pipeline_latency_ms`| Double | Flux Spark : `written_at - produced_at` (écriture effective). API : `scored_at - produced_at` (inférence) | - | Non | Exposé en `latency_ms` |
 | `source` | String | `"stream"` (Spark) ou `"api"` (si `persist=true`) | - | Non | Non |
 
 ---
@@ -45,26 +46,61 @@ Stocke exclusivement les transactions dont la décision est `BLOCKED`.
 
 * **Clé primaire :** `_id` = `transaction_id`.
 * **Index obligatoire :** `{ "scored_at": -1 }`.
+* **Champ `decision` :** chaque alerte est écrite avec `decision: "BLOCKED"`.
 * **Mapping API :** Le champ `scored_at` est renvoyé sous la clé `timestamp` (ISO 8601 UTC) dans l'endpoint `GET /api/v1/alerts/latest`.
 
 ### Collection 3 : `stats_buckets`
-Stocke les métriques pré-agrégées par intervalle de temps (ex: fenêtre de 10 secondes).
+Stocke les métriques agrégées par micro-batch Spark (fenêtre de 10 secondes).
 
-* **Clé primaire :** `_id` = début de l'intervalle ISO (ex: `"2026-11-07T10:00:10Z"`).
+* **Clé primaire :** `_id` = `batch_id` (entier fourni par Spark).
 * **Champs :**
-  * `total_tx`: Nombre total de transactions traitées dans l'intervalle.
+  * `batch_id`: Identifiant du micro-batch Spark.
+  * `bucket_start`: Début de l'intervalle de **processing time** (horloge du driver Spark), arrondi à 10 s (ex: `"2026-11-07T10:00:10Z"`). Ce n'est pas l'event time.
+  * `total_tx`: Nombre total de transactions traitées dans le micro-batch.
   * `total_frauds`: Nombre de fraudes détectées.
   * `fraud_amount`: Montant total des transactions frauduleuses.
+  * `model_version`: Version du modèle utilisée pour le micro-batch.
+* **Index :** `{ "bucket_start": 1 }` pour la série temporelle de l'API.
+* **Écriture idempotente :** `update_one({"_id": batch_id}, {"$set": {...}}, upsert=True)`.
+  Un rejeu du même micro-batch écrase les mêmes compteurs au lieu de les incrémenter
+  une seconde fois. Il y a exactement un bucket par batch car l'horodatage `now_utc`
+  est fixé pour tout le micro-batch.
+* **Lecture API :** `GET /stats` et `GET /stats/timeseries` agrègent les documents
+  avec `$sum` sur `total_tx` / `total_frauds` / `fraud_amount`, groupés par
+  `bucket_start` pour la série temporelle.
+* **Migration :** ce schéma remplace l'ancien `_id = bucket_start` avec `$inc`.
+  Vider `stats_buckets` avant le premier run pour éviter de mélanger les deux
+  formats dans les agrégations.
+* **Rétention :** le TTL MongoDB ne s'applique qu'à `transactions` et `fraud_alerts`.
+  `stats_buckets` et `processed_batches` sont conservés pour l'audit ; les totaux
+  `/stats` restent donc cumulés sur toute la durée de vie de la base. Après purge
+  TTL, `/stats` peut dépasser `transactions.countDocuments()` : c'est intentionnel.
+  `processed_batches` croît d'un document par micro-batch ; pour un run très long,
+  prévoir un archivage ou une purge manuelle.
 
-### Collection 4 : `processed_batches` (Mécanisme d'Idempotence retenu)
-Collection dédiée pour garantir l'idempotence stricte lors de l'exécution de `foreachBatch(micro_batch_df, batch_id)` par Spark Structured Streaming :
+### Collection 4 : `processed_batches` (registre d'audit)
+Collection dédiée à la traçabilité des micro-batches exécutés par
+`foreachBatch(micro_batch_df, batch_id)` :
 
-* **Clé primaire :** `_id` = `batch_id` (entier ou chaîne fourni par le moteur Spark).
+* **Clé primaire :** `_id` = `batch_id` (entier fourni par le moteur Spark).
 * **Champs :**
   * `processed_at`: Date d'enregistrement ISO UTC.
   * `record_count`: Nombre de transactions dans le micro-batch.
 * **Règle de traitement Spark :**
-  Avant d'écrire dans `transactions`, `fraud_alerts` et de mettre à jour `stats_buckets` :
-  1. Spark tente d'insérer `{ _id: batch_id, processed_at: now, record_count: count }` dans `processed_batches`.
-  2. Si l'insertion échoue par violation de clé unique (doublon `E11000 duplicate key error`), cela signifie que le micro-batch a déjà été validé : **Spark ignore l'écriture et termine le micro-batch sans ré-incrémenter les stats**.
-  3. Cette approche résout définitivement le risque de sur-comptage sans nécessiter de verrouillage complexe.
+  1. Spark insère `{ _id: batch_id, processed_at: now, record_count: count }` dans `processed_batches`.
+  2. Si l'insertion échoue par violation de clé unique (`E11000 duplicate key error`),
+     le micro-batch est un **rejeu** : Spark journalise l'événement et **ré-exécute
+     les écritures**. Celles-ci sont idempotentes (`upsert` par `_id` et `$set` par batch),
+     donc le rejeu ne produit ni doublon ni sur-comptage.
+  3. Le registre est une trace d'audit, pas un verrou : il ne doit jamais provoquer
+     l'abandon des écritures.
+* **Remise à zéro :** lorsqu'on supprime le checkpoint Spark, les `batch_id`
+  repartent à 0. Il faut alors vider **les quatre collections** (`transactions`,
+  `fraud_alerts`, `stats_buckets`, `processed_batches`) avant de relancer le job,
+  sinon les premiers batches du nouveau run seraient considérés comme des rejeux
+  (sans perte grâce aux upserts, mais avec des métriques mélangées à l'ancien run).
+
+### Règle générale : `_id` immuable
+Les `UpdateOne({"_id": ...}, {"$set": ...}, upsert=True)` ne doivent **jamais**
+inclure `_id` dans le `$set`. Le filtre positionne `_id` à l'insertion ; le
+répéter dans `$set` provoque `ImmutableField` sur un document existant.

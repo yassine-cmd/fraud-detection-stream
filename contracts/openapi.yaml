@@ -18,7 +18,7 @@ paths:
   /api/v1/predict:
     post:
       summary: Prédiction synchrone en mémoire
-      description: Évalue immédiatement une transaction en mémoire (défaut sans écriture DB pour préserver le P95 < 200 ms). Si persist=true, stocke le résultat dans MongoDB (source: "api").
+      description: 'Évalue immédiatement une transaction en mémoire (défaut sans écriture DB pour préserver le P95 < 200 ms). Si persist=true, stocke le résultat dans MongoDB (source: "api").'
       operationId: predictTransaction
       parameters:
         - name: persist
@@ -64,6 +64,7 @@ paths:
   /api/v1/stats:
     get:
       summary: Compteurs globaux
+      description: Agrège les documents stats_buckets avec $sum sur total_tx, total_frauds et fraud_amount.
       operationId: getGlobalStats
       responses:
         '200':
@@ -75,6 +76,7 @@ paths:
   /api/v1/stats/timeseries:
     get:
       summary: Série temporelle des transactions et fraudes
+      description: Agrège stats_buckets par bucket_start avec $sum, puis applique la fenêtre demandée.
       operationId: getTimeseries
       parameters:
         - name: window
@@ -158,7 +160,8 @@ components:
       properties:
         transaction_id:
           type: string
-          description: Identifiant optionnel. Si omis, généré automatiquement par l'API (UUIDv4).
+          pattern: '^tx_[a-zA-Z0-9_-]+$'
+          description: Identifiant optionnel. Si omis, l'API génère `tx_` + UUIDv4 (préfixe obligatoire pour le job Spark).
           example: "tx_custom_102"
         step:
           type: integer
@@ -336,6 +339,7 @@ components:
         - type
         - amount
         - probability
+        - decision
         - model_version
       properties:
         transaction_id:
@@ -349,6 +353,10 @@ components:
           type: number
         probability:
           type: number
+        decision:
+          type: string
+          enum: [BLOCKED]
+          example: "BLOCKED"
         model_version:
           type: string
 
@@ -363,14 +371,14 @@ components:
           example: "start"
         rate_tx_per_sec:
           type: integer
-          minimum: 10
-          maximum: 2000
+          minimum: 1
+          maximum: 5000
           default: 500
           example: 500
         fraud_ratio:
           type: number
-          minimum: 0.0001
-          maximum: 0.5
+          minimum: 0
+          maximum: 1
           default: 0.0013
           example: 0.02
 
@@ -381,6 +389,10 @@ components:
         - rate_tx_per_sec
         - fraud_ratio
         - total_sent
+        - total_delivered
+        - errors_count
+        - dataset_rows
+        - last_error
       properties:
         is_running:
           type: boolean
@@ -393,4 +405,22 @@ components:
           example: 0.02
         total_sent:
           type: integer
+          description: Messages enqueued dans le producer (pas encore nécessairement acquittés).
           example: 45200
+        total_delivered:
+          type: integer
+          description: Messages acquittés par Kafka (callback de livraison).
+          example: 45198
+        errors_count:
+          type: integer
+          description: Nombre d'échecs de livraison signalés par Kafka.
+          example: 2
+        dataset_rows:
+          type: integer
+          description: Nombre de lignes valides chargées depuis le CSV.
+          example: 30000
+        last_error:
+          type: string
+          nullable: true
+          description: Dernier message d'erreur de livraison, ou null.
+          example: null

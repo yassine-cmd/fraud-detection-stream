@@ -1,8 +1,9 @@
-# Documentation locale (exclue du dépôt GitHub)
+# Dossier de documentation complet (ignore)
 docs/
 *.pdf
-ml/DOCUMENTATION.md
-ml/documentation.md
+
+# Artefact de test T1.1 (ne pas versionner)
+ml/artifacts/dummy_model.joblib
 
 # Données volumineuses (PaySim ~470 Mo)
 *.csv

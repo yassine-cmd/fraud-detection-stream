@@ -45,7 +45,9 @@ class StreamSimulator:
         self.fraud_ratio = min(1.0, max(0.0, float(fraud_ratio)))
         self.is_running = auto_start
         self.total_sent = 0
+        self.total_delivered = 0
         self.errors_count = 0
+        self.last_error = None
         self.lock = threading.Lock()
 
         self.rows_all = []
@@ -60,7 +62,8 @@ class StreamSimulator:
             {
                 "bootstrap.servers": self.bootstrap,
                 "linger.ms": 10,
-                "acks": 1,
+                "acks": "all",
+                "enable.idempotence": True,
                 "retries": 5,
                 "queue.buffering.max.messages": 100000,
             }
@@ -168,6 +171,10 @@ class StreamSimulator:
                 "rate_tx_per_sec": int(self.rate),
                 "fraud_ratio": self.fraud_ratio,
                 "total_sent": self.total_sent,
+                "total_delivered": self.total_delivered,
+                "errors_count": self.errors_count,
+                "dataset_rows": len(self.rows_all),
+                "last_error": self.last_error,
             }
 
     def run_loop(self):
@@ -182,9 +189,13 @@ class StreamSimulator:
             if err is not None:
                 with self.lock:
                     self.errors_count += 1
+                    self.last_error = str(err)
                     current_errors = self.errors_count
                 if current_errors % 100 == 1:
                     print(f"[Kafka Error] Echec livraison : {err}", flush=True)
+            else:
+                with self.lock:
+                    self.total_delivered += 1
 
         while True:
             with self.lock:
@@ -272,7 +283,10 @@ class ControlHttpHandler(BaseHTTPRequestHandler):
         if self.path in ["/status", "/api/v1/stream/status"]:
             self._write_json(200, self.simulator.status())
         elif self.path in ["/health", "/api/v1/health"]:
-            self._write_json(200, {"status": "healthy"})
+            status = self.simulator.status()
+            healthy = status["dataset_rows"] > 0
+            status["status"] = "healthy" if healthy else "unhealthy"
+            self._write_json(200 if healthy else 503, status)
         else:
             self._write_json(404, {"error": "not found"})
 

@@ -3,7 +3,8 @@
   "model_type": "XGBClassifier",
   "created_at": "2026-11-07T20:27:42.164884+00:00",
   "provenance": {
-    "git_commit": "b76f5e1-dirty",
+    "git_commit": "4cf78a4",
+    "git_commit_note": "Artefact introduit dans main par 4cf78a4 (entrainement local initial b76f5e1 non merge)",
     "environment_versions": {
       "python": "3.12.10",
       "scikit_learn": "1.4.2",

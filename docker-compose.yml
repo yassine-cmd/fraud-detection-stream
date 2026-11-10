@@ -135,6 +135,7 @@ services:
       spark-worker:
         condition: service_started
     mem_limit: 1536m
+    stop_grace_period: 30s
     environment:
       KAFKA_BOOTSTRAP: kafka:9092
       KAFKA_TOPIC: transactions_stream
