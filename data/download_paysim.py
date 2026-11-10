@@ -1,5 +1,6 @@
 """Script de telechargement du dataset PaySim depuis Hugging Face."""
 
+import hashlib
 import urllib.request
 import sys
 import time
@@ -7,6 +8,15 @@ from pathlib import Path
 
 URL = "https://huggingface.co/datasets/purulalwani/Synthetic-Financial-Datasets-For-Fraud-Detection/resolve/main/financial_txns.parquet"
 OUTPUT_FILE = Path(__file__).resolve().parent / "paysim.parquet"
+EXPECTED_SHA256 = "7bea7b48f926408f41860a55026094f9d441ea786a1dfaec769512dd1249a6fc"
+
+
+def sha256sum(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as f:
+        for chunk in iter(lambda: f.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
 
 def progress_hook(block_num, block_size, total_size):
     downloaded = block_num * block_size
@@ -31,3 +41,10 @@ if __name__ == "__main__":
     elapsed = time.time() - start
     print(f"\n[OK] Telechargement termine en {elapsed:.1f} secondes !")
     print(f"Taille du fichier : {OUTPUT_FILE.stat().st_size / (1024 * 1024):.2f} Mo")
+
+    digest = sha256sum(OUTPUT_FILE)
+    if digest != EXPECTED_SHA256:
+        raise SystemExit(
+            f"[ERREUR] SHA-256 inattendu : {digest} (attendu {EXPECTED_SHA256})"
+        )
+    print(f"[OK] SHA-256 verifie : {digest}")

@@ -7,8 +7,8 @@ Ce n'est PAS le consumer de production (c'est Spark). C'est un outil de controle
 
 Installation :  pip install confluent-kafka jsonschema
 Exemples :
-    python consumer.py --schema contracts/kafka_message.schema.json --max 100
-    python consumer.py --schema contracts/kafka_message.schema.json --max 0   # jusqu'a Ctrl+C
+    python tools/kafka_consumer_check.py --schema contracts/kafka_message.schema.json --max 100
+    python tools/kafka_consumer_check.py --schema contracts/kafka_message.schema.json --max 0   # jusqu'a Ctrl+C
 """
 import argparse
 import json
@@ -21,7 +21,8 @@ from jsonschema import Draft7Validator
 
 
 def parse_iso(ts):
-    return datetime.strptime(ts, "%Y-%m-%dT%H:%M:%S.%fZ").replace(tzinfo=timezone.utc)
+    # Accepte les fractions de seconde optionnelles autorisees par le contrat.
+    return datetime.fromisoformat(ts.replace("Z", "+00:00"))
 
 
 def main():

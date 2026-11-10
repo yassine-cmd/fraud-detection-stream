@@ -1,6 +1,6 @@
 """Script de generation du Dummy Model (Tache T1.1 - Priorite J+1)
 
-Ce script cree le premier artefact model.joblib conforme aux specifications
+Ce script cree le premier artefact dummy_model.joblib conforme aux specifications
 du Cahier des Charges.
 
 L'objet serialise est directement un Pipeline scikit-learn standard,
@@ -149,6 +149,6 @@ def test_inference(model_path: Path):
 
 
 if __name__ == "__main__":
-    artifact_file = Path(__file__).resolve().parent.parent / "artifacts" / "model.joblib"
+    artifact_file = Path(__file__).resolve().parent.parent / "artifacts" / "dummy_model.joblib"
     build_and_save_dummy_model(artifact_file)
     test_inference(artifact_file)

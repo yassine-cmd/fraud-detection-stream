@@ -1,8 +1,0 @@
-# Versions figees conformes a contracts/common_versions.env
-pandas==2.2.2
-pyarrow==17.0.0
-numpy==1.26.4
-scikit-learn==1.4.2
-xgboost==2.0.3
-joblib==1.4.2
-pymongo==4.6.0

@@ -196,6 +196,15 @@ def make_score_udf(model_bc):
     return _score
 
 
+def _tx_update(transaction_id, tx_doc):
+    """Upsert d'une transaction avec latence et horodatage ecriture."""
+    return UpdateOne(
+        {"_id": transaction_id},
+        {"$set": tx_doc},
+        upsert=True,
+    )
+
+
 def process_batch(batch_df, batch_id):
     """Execute pour chaque micro-batch Spark Structured Streaming."""
     batch_df = batch_df.persist()
@@ -213,6 +222,17 @@ def process_batch(batch_df, batch_id):
     valid_mask = pdf["transaction_id"].notna() & pdf["transaction_id"].astype(str).str.startswith("tx_")
     pdf_valid = pdf[valid_mask].copy()
 
+    invalid_count = len(pdf) - len(pdf_valid)
+    if invalid_count:
+        sample_ids = (
+            pdf.loc[~valid_mask, "transaction_id"].astype(str).head(5).tolist()
+        )
+        print(
+            f"[batch {batch_id}] {invalid_count} message(s) invalide(s) ignore(s). "
+            f"Exemples: {sample_ids}",
+            flush=True,
+        )
+
     if len(pdf_valid) == 0:
         batch_df.unpersist()
         return
@@ -228,7 +248,9 @@ def process_batch(batch_df, batch_id):
         else "v1.0.0-fallback"
     )
 
-    # 1. Idempotence stricte : consigner le batch avant les ecritures de donnees.
+    # 1. Registre d'idempotence : trace d'audit, pas un verrou.
+    #    Un rejeu Spark (meme batch_id) doit re-executer les ecritures ci-dessous,
+    #    car celles-ci sont idempotentes (upserts + $set par batch).
     db = None
     if MONGO_ENABLED:
         db = get_mongo_db()
@@ -242,11 +264,9 @@ def process_batch(batch_df, batch_id):
             )
         except DuplicateKeyError:
             print(
-                f"[Spark Idempotence] Batch {batch_id} deja traite. Ecriture ignoree.",
+                f"[batch {batch_id}] deja vu -> rejeu idempotent.",
                 flush=True,
             )
-            batch_df.unpersist()
-            return
         except Exception as e:
             print(f"[Spark Mongo Error] processed_batches verification: {e}", flush=True)
             batch_df.unpersist()
@@ -261,7 +281,7 @@ def process_batch(batch_df, batch_id):
     fraud_amount_total = 0.0
     latencies = []
 
-    for _, row in pdf_valid.iterrows():
+    for row in pdf_valid.to_dict("records"):
         probability = safe_float(row.get("probability"), 0.0)
         is_fraud = bool(probability >= threshold)
         decision = "BLOCKED" if is_fraud else "ALLOWED"
@@ -272,7 +292,6 @@ def process_batch(batch_df, batch_id):
 
         transaction_id = safe_str(row.get("transaction_id"))
         tx_doc = {
-            "_id": transaction_id,
             "step": safe_int(row.get("step"), 1),
             "type": safe_str(row.get("type"), "TRANSFER"),
             "amount": safe_float(row.get("amount"), 0.0),
@@ -289,10 +308,11 @@ def process_batch(batch_df, batch_id):
             "model_version": model_version,
             "produced_at": produced_at,
             "scored_at": now_utc,
+            "written_at": now_utc,
             "pipeline_latency_ms": latency_ms,
             "source": "stream",
         }
-        tx_ops.append(UpdateOne({"_id": transaction_id}, {"$set": tx_doc}, upsert=True))
+        tx_ops.append(_tx_update(transaction_id, tx_doc))
 
         if is_fraud:
             fraud_count += 1
@@ -302,14 +322,20 @@ def process_batch(batch_df, batch_id):
                     {"_id": transaction_id},
                     {
                         "$set": {
-                            "_id": transaction_id,
                             "transaction_id": transaction_id,
                             "timestamp": scored_at_iso,
                             "scored_at": now_utc,
                             "type": tx_doc["type"],
                             "amount": tx_doc["amount"],
+                            "oldbalanceOrg": tx_doc["oldbalanceOrg"],
+                            "newbalanceOrig": tx_doc["newbalanceOrig"],
+                            "oldbalanceDest": tx_doc["oldbalanceDest"],
+                            "newbalanceDest": tx_doc["newbalanceDest"],
+                            "nameOrig": tx_doc["nameOrig"],
+                            "nameDest": tx_doc["nameDest"],
                             "probability": probability,
                             "model_version": model_version,
+                            "decision": decision,
                         }
                     },
                     upsert=True,
@@ -337,16 +363,21 @@ def process_batch(batch_df, batch_id):
             if alert_ops:
                 db.fraud_alerts.bulk_write(alert_ops, ordered=False)
 
-            for bucket_id, bucket_value in bucket_counts.items():
+            # Un seul bucket par batch : now_utc est fixe pour tout le micro-batch.
+            # _id = batch_id + $set => un rejeu ecrase les memes compteurs
+            # au lieu de les incrementer une seconde fois.
+            for bucket_key, bucket_value in bucket_counts.items():
                 db.stats_buckets.update_one(
-                    {"_id": bucket_id},
+                    {"_id": batch_id},
                     {
-                        "$inc": {
+                        "$set": {
+                            "batch_id": batch_id,
+                            "bucket_start": bucket_key,
                             "total_tx": bucket_value["total_tx"],
                             "total_frauds": bucket_value["total_frauds"],
                             "fraud_amount": bucket_value["fraud_amount"],
-                        },
-                        "$set": {"last_batch_id": batch_id},
+                            "model_version": model_version,
+                        }
                     },
                     upsert=True,
                 )
@@ -359,7 +390,7 @@ def process_batch(batch_df, batch_id):
     mongo_state = "ON" if MONGO_ENABLED and db is not None else "OFF"
     print(
         f"[batch {batch_id}] Traite : {len(pdf_valid)} tx | Fraudes : {fraud_count} "
-        f"| Montant bloque : {fraud_amount_total:,.2f} $ | Latence moy : {avg_latency:.1f} ms "
+        f"| Montant bloque : {fraud_amount_total:,.2f} $ | Latence scoring moy : {avg_latency:.1f} ms "
         f"| Mongo : {mongo_state}",
         flush=True,
     )
@@ -376,7 +407,10 @@ def main():
     builder = (
         SparkSession.builder.appName("fraud-streaming")
         .config("spark.sql.session.timeZone", "UTC")
-        .config("spark.streaming.stopGracefullyOnShutdown", "true")
+        # Spark 3.5.1 : spark.streaming.stopGracefullyOnShutdown ne s'applique
+        # qu'aux DStreams. Pour Structured Streaming, stopTimeout laisse au
+        # micro-batch en cours le temps de se terminer proprement.
+        .config("spark.sql.streaming.stopTimeout", "30000")
         .config("spark.sql.execution.arrow.pyspark.enabled", "true")
         .config("spark.sql.execution.arrow.maxRecordsPerBatch", "10000")
     )
