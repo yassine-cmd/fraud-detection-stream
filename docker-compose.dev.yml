@@ -1,0 +1,18 @@
+# Dev local de la partie API + Front (sans Kafka/Spark/simulateur) :
+#   docker compose -f docker-compose.dev.yml up -d --build
+#   Front : http://localhost:8080   API/Swagger : http://localhost:8000/docs
+# MOCK_MODE=1 => stats/alertes/simulateur simulés ; /health renvoie mode:"mock".
+# Pour la version complète, reprendre les services `api` et `frontend` dans le docker-compose.yml
+# de l'équipe Big Data en retirant MOCK_MODE (voir documentation.md §6).
+services:
+  api:
+    build: ./api
+    environment:
+      MOCK_MODE: "1"
+      CORS_ORIGINS: "http://localhost:8080"
+    ports: ["8000:8000"]
+    mem_limit: 512m
+  frontend:
+    build: ./frontend
+    ports: ["8080:80"]
+    mem_limit: 64m

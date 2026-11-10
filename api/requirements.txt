@@ -1,0 +1,13 @@
+# Versions figées : doivent être IDENTIQUES à celles de l'image Spark (cahier des charges §3.3).
+# Le model.joblib fourni a été sérialisé avec scikit-learn 1.4.2.
+fastapi==0.115.6
+uvicorn[standard]==0.34.0
+pydantic==2.10.4
+pymongo==4.10.1
+confluent-kafka==2.6.1
+httpx==0.28.1
+numpy==1.26.4
+pandas==2.1.4
+scikit-learn==1.4.2
+joblib==1.4.2
+# xgboost==<version figée avec l'équipe ML> (à décommenter quand le vrai modèle sera XGBoost)
