@@ -55,7 +55,7 @@ paths:
             schema:
               $ref: '#/components/schemas/TransactionInput'
       responses:
-        '200':
+        '202':
           description: Transaction mise en file d'attente
           content:
             application/json:

@@ -7,7 +7,7 @@ pymongo==4.10.1
 confluent-kafka==2.6.1
 httpx==0.28.1
 numpy==1.26.4
-pandas==2.1.4
+pandas==2.2.2
 scikit-learn==1.4.2
+xgboost==2.0.3
 joblib==1.4.2
-# xgboost==<version figée avec l'équipe ML> (à décommenter quand le vrai modèle sera XGBoost)

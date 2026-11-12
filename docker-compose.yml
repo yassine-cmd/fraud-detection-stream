@@ -99,7 +99,7 @@ services:
       SPARK_MASTER_HOST: spark-master
       SPARK_DAEMON_MEMORY: 512m
     ports:
-      - "8080:8080"   # UI Web du Master Spark
+      - "8081:8080"   # UI Web du Master Spark (8080 reserve au frontend)
     restart: unless-stopped
 
   # Worker execute les calculs et heberge les bibliotheques ML
@@ -203,6 +203,59 @@ services:
       timeout: 5s
       retries: 5
       start_period: 10s
+    restart: unless-stopped
+
+  # ---------- API REST FastAPI (P3) ----------
+  # Le modèle réel est monté depuis ml/artifacts : l'API et Spark utilisent
+  # donc exactement le même model.joblib (parité des scores, §3.3).
+  api:
+    build: ./api
+    container_name: api
+    mem_limit: 1g
+    depends_on:
+      kafka-init:
+        condition: service_completed_successfully
+      mongo:
+        condition: service_healthy
+      producer:
+        condition: service_started
+    environment:
+      MONGO_URI: mongodb://mongo:27017
+      MONGO_DB: fraud
+      KAFKA_BOOTSTRAP: kafka:9092
+      KAFKA_TOPIC: transactions_stream
+      SIMULATOR_URL: http://producer:8001
+      MODEL_PATH: /models/model.joblib
+      MODEL_METADATA_PATH: /models/metadata.json
+      STATS_BASE_BUCKET_SECONDS: "10"
+      CORS_ORIGINS: "http://localhost:8080,http://127.0.0.1:8080,http://localhost:8000"
+    volumes:
+      - ./ml/artifacts:/models:ro
+    ports:
+      - "8000:8000"
+    # 4 workers = 1 par cœur physique : améliore le P95 sous charge (SNF2).
+    # En mode mock (docker-compose.dev.yml), rester à 1 worker pour garder
+    # un état simulé cohérent entre les requêtes.
+    command: ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--workers", "${API_WORKERS:-4}"]
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/api/v1/health', timeout=4)"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 25s
+    restart: unless-stopped
+
+  # ---------- Front-end React servi par nginx (P3) ----------
+  # nginx relaie /api/ vers le service api : le navigateur ne voit qu'un origin.
+  frontend:
+    build: ./frontend
+    container_name: frontend
+    mem_limit: 64m
+    depends_on:
+      api:
+        condition: service_healthy
+    ports:
+      - "8080:80"
     restart: unless-stopped
 
 volumes:

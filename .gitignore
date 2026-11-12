@@ -25,6 +25,11 @@ __pycache__/
 env/
 venv/
 .ipynb_checkpoints/
+.pytest_cache/
+
+# Front-end (build et dépendances)
+frontend/node_modules/
+frontend/dist/
 
 # Variables d'environnement locales
 .env

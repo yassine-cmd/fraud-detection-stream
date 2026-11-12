@@ -3,16 +3,29 @@
 #   Front : http://localhost:8080   API/Swagger : http://localhost:8000/docs
 # MOCK_MODE=1 => stats/alertes/simulateur simulés ; /health renvoie mode:"mock".
 # Pour la version complète, reprendre les services `api` et `frontend` dans le docker-compose.yml
-# de l'équipe Big Data en retirant MOCK_MODE (voir documentation.md §6).
+# de l'équipe Big Data en retirant MOCK_MODE (voir documentation.md §7).
 services:
   api:
     build: ./api
     environment:
       MOCK_MODE: "1"
       CORS_ORIGINS: "http://localhost:8080"
+      MODEL_PATH: /models/model.joblib
+      MODEL_METADATA_PATH: /models/metadata.json
+    volumes:
+      - ./ml/artifacts:/models:ro
     ports: ["8000:8000"]
-    mem_limit: 512m
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/api/v1/health', timeout=4)"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 25s
+    mem_limit: 768m
   frontend:
     build: ./frontend
+    depends_on:
+      api:
+        condition: service_healthy
     ports: ["8080:80"]
     mem_limit: 64m
