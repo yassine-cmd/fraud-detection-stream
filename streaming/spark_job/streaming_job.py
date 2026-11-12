@@ -298,7 +298,7 @@ def process_batch(batch_df, batch_id):
     fraud_amount_total = 0.0
     latencies = []
 
-    for _, row in pdf_valid.iterrows():
+    for row in pdf_valid.to_dict("records"):
         probability = safe_float(row.get("probability"), 0.0)
         is_fraud = bool(probability >= threshold)
         decision = "BLOCKED" if is_fraud else "ALLOWED"
@@ -344,9 +344,15 @@ def process_batch(batch_df, batch_id):
                             "scored_at": now_utc,
                             "type": tx_doc["type"],
                             "amount": tx_doc["amount"],
+                            "oldbalanceOrg": tx_doc["oldbalanceOrg"],
+                            "newbalanceOrig": tx_doc["newbalanceOrig"],
+                            "oldbalanceDest": tx_doc["oldbalanceDest"],
+                            "newbalanceDest": tx_doc["newbalanceDest"],
+                            "nameOrig": tx_doc["nameOrig"],
+                            "nameDest": tx_doc["nameDest"],
                             "probability": probability,
                             "model_version": model_version,
-                            "decision": "BLOCKED",
+                            "decision": decision,
                         }
                     },
                     upsert=True,

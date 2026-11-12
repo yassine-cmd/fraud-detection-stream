@@ -54,7 +54,7 @@ services:
   mongo:
     image: mongo:7
     container_name: mongo
-    mem_limit: 512m
+    mem_limit: 1g
     ports:
       - "27017:27017"
     environment:

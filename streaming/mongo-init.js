@@ -93,10 +93,12 @@ ensureCollection("stats_buckets");
 ensureCollection("processed_batches");
 
 db.transactions.createIndex({ is_fraud: 1, scored_at: -1 }, { background: true });
+db.transactions.createIndex({ scored_at: -1, type: 1, is_fraud: 1 }, { background: true });
 db.stats_buckets.createIndex({ bucket_start: 1 }, { background: true });
 
 applyRetention(db.transactions, "scored_at", TTL_SECONDS);
 applyRetention(db.fraud_alerts, "scored_at", TTL_SECONDS);
+applyRetention(db.stats_buckets, "bucket_start", TTL_SECONDS);
 
 print(
     "[mongo-init] Base 'fraud' prete. Retention=" +

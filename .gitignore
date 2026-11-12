@@ -10,6 +10,7 @@ ml/artifacts/dummy_model.joblib
 *.parquet
 *.zip
 *.tar.gz
+*.rar
 data/*
 !data/download_paysim.py
 !data/.gitkeep
@@ -54,3 +55,5 @@ metastore_db/
 Thumbs.db
 .vscode/
 .idea/
+.playwright-mcp/
+scratch/

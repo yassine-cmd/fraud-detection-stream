@@ -15,6 +15,17 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/HealthResponse'
+  /api/v1/model/info:
+    get:
+      summary: Métadonnées du modèle ML en mémoire
+      operationId: getModelInfo
+      responses:
+        '200':
+          description: Informations sur le modèle
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ModelInfoResponse'
   /api/v1/predict:
     post:
       summary: Prédiction synchrone en mémoire
@@ -96,6 +107,40 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/TimeseriesResponse'
+  /api/v1/stats/breakdown:
+    get:
+      summary: Répartition des transactions et fraudes par type
+      operationId: getStatsBreakdown
+      parameters:
+        - name: window
+          in: query
+          schema:
+            type: string
+            default: "15m"
+      responses:
+        '200':
+          description: Répartition par type de transaction
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BreakdownResponse'
+  /api/v1/stats/latency:
+    get:
+      summary: Latence de bout-en-bout du pipeline de streaming
+      operationId: getStatsLatency
+      parameters:
+        - name: window
+          in: query
+          schema:
+            type: string
+            default: "15m"
+      responses:
+        '200':
+          description: Métriques de latence pipeline
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LatencyResponse'
   /api/v1/alerts/latest:
     get:
       summary: Dernières alertes de fraude
@@ -268,13 +313,109 @@ components:
           example: true
         model_version:
           type: string
-          example: "v1.0.0"
+          example: "v1.0.0-xgb"
+        threshold:
+          type: number
+          example: 0.9447
+        kafka:
+          type: string
+          example: "up"
+        mongodb:
+          type: string
+          example: "up"
         mongodb_connected:
           type: boolean
           example: true
         kafka_connected:
           type: boolean
           example: true
+        uptime_s:
+          type: number
+          example: 1240.5
+        pipeline_lag_seconds:
+          type: number
+          nullable: true
+          description: "Retard mesuré entre l'ingestion Kafka et le dernier batch Spark (secondes)"
+          example: 2.1
+        pipeline_synced:
+          type: boolean
+          nullable: true
+          description: "Indique si le pipeline est synchronisé (< 30s de retard)"
+          example: true
+
+    ModelInfoResponse:
+      type: object
+      required:
+        - loaded
+        - model_version
+        - model_type
+        - features
+        - threshold
+      properties:
+        loaded:
+          type: boolean
+          example: true
+        model_version:
+          type: string
+          example: "v1.0.0-xgb"
+        model_type:
+          type: string
+          example: "XGBClassifier"
+        threshold:
+          type: number
+          example: 0.9447
+        features:
+          type: array
+          items:
+            type: string
+        metrics:
+          type: object
+
+    BreakdownResponse:
+      type: object
+      required:
+        - window
+        - by_type
+      properties:
+        window:
+          type: string
+          example: "15m"
+        by_type:
+          type: array
+          items:
+            type: object
+            properties:
+              type:
+                type: string
+              total:
+                type: integer
+              frauds:
+                type: integer
+              fraud_amount:
+                type: number
+              fraud_rate:
+                type: number
+
+    LatencyResponse:
+      type: object
+      required:
+        - window
+        - p50_ms
+        - p95_ms
+        - p99_ms
+        - count
+      properties:
+        window:
+          type: string
+          example: "15m"
+        p50_ms:
+          type: number
+        p95_ms:
+          type: number
+        p99_ms:
+          type: number
+        count:
+          type: integer
 
     GlobalStatsResponse:
       type: object
@@ -355,10 +496,28 @@ components:
           type: number
         decision:
           type: string
-          enum: [BLOCKED]
+          enum: [BLOCKED, ALLOWED]
           example: "BLOCKED"
         model_version:
           type: string
+        oldbalanceOrg:
+          type: number
+          nullable: true
+        newbalanceOrig:
+          type: number
+          nullable: true
+        oldbalanceDest:
+          type: number
+          nullable: true
+        newbalanceDest:
+          type: number
+          nullable: true
+        nameOrig:
+          type: string
+          nullable: true
+        nameDest:
+          type: string
+          nullable: true
 
     StreamControlRequest:
       type: object
